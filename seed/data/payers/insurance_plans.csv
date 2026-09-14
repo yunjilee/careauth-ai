@@ -1,0 +1,4 @@
+Payer Id,Plan Id,Name,Services Covered,Deductible,Default Coinsurance,Default Copay,Monthly Premium,Max Out of Pocket,Medicare Supplement,Is ACA Plan,Income Based Premium,Eligibility Policy,Start Year,End Year,Priority Level,Notes
+910000,910001,Cedar Standard,*,1500,0.8,25,320,8700,false,false,false,Generic,0,,,Fictional fixture plan
+920000,920001,Larkspur Select,*,2500,0.7,30,290,8700,false,false,false,Generic,0,,,Fictional fixture plan
+930000,930001,Northgate Essential,*,3500,0.6,40,250,8700,false,false,false,Generic,0,,,Fictional fixture plan

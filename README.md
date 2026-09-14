@@ -1,12 +1,32 @@
-# MRI Prior Authorization Copilot
+# CareAuthAI — Healthcare Prior Authorization Agent
 
-An agentic workflow that turns a physician's lumbar MRI order into a prior-authorization packet with supporting evidence, missing-documentation checks, and human review.
+An agentic workflow that turns a physician's order into a prior-authorization packet with supporting evidence, missing-documentation checks, and human review. The initial MVP focuses on routine lumbar-spine MRI without contrast.
 
-The copilot combines structured patient records from a FHIR API with retrieval over clinical notes and versioned payer policies. It helps authorization staff answer: **What documentation does this request require, what evidence do we have, and what still needs attention?**
+CareAuthAI combines structured patient records from a FHIR API with retrieval over clinical notes and versioned payer policies. It helps authorization staff answer: **What documentation does this request require, what evidence do we have, and what still needs attention?**
 
-**Project status:** proposed design for a personal learning project. The customer, patients, payers, policies, and operating assumptions below are fictional. Features and performance targets describe intended behavior, not an implemented product or measured results.
+**Project status:** proposed design for a personal learning project. The industry evidence below comes from cited sources; the demo customer, patient records, payer identities, policy fixtures, and operating assumptions are fictional. Features and performance targets describe intended behavior, not an implemented product or measured results.
 
 ## 1. Customer and business problem
+
+### A documented industry problem
+
+Prior authorization creates substantial administrative work for healthcare providers. In the AMA's **2025 prior authorization physician survey**, a December 2025 survey of 1,000 practicing U.S. physicians who routinely complete prior authorizations, respondents reported:
+
+| Finding | Reported burden |
+| --- | --- |
+| Weekly authorization volume | **40 prior authorizations per physician**, on average. |
+| Time spent completing authorizations | **13 hours of physician and staff time per week**, on average, for a single physician's authorization workload. |
+| Dedicated staffing | **40% of physicians** reported employing staff dedicated exclusively to prior authorization. |
+
+Source: [2025 AMA prior authorization physician survey](https://www.ama-assn.org/system/files/prior-authorization-survey.pdf). These are self-reported findings across medication and medical-service authorizations. They are not MRI-specific estimates, measured savings from CareAuthAI, or a baseline for the fictional customer.
+
+There is also explicit provider demand for workflow automation: the American Hospital Association supports an automated prior-authorization process integrated into clinicians' EHR workflows. This supports the need for reducing administrative work; adoption of this particular product remains a hypothesis to validate. [AHA statement, September 2025](https://www.aha.org/lettercomment/2025-09-29-aha-supports-administration-facilitating-health-insurer-pledge-reform-prior-authorization)
+
+A concrete precedent is Cleveland Clinic's deployment of automated chart-data retrieval for selected medication authorizations. Its December 2024 case study reports time savings from gathering required information automatically. The implementation used conventional automated retrieval and addressed medications; it validates a related workflow opportunity without establishing the performance of an MRI agent. [Cleveland Clinic case study](https://consultqd.clevelandclinic.org/automated-data-retrieval-expedites-prior-authorization-process)
+
+**CareAuthAI's proposed value:** reduce the work required to gather supporting evidence, identify documentation gaps, and prepare an authorization request, while preserving human review. Measure preparation and correction effort separately from payer decision time and approval rates.
+
+### Fictional pilot customer
 
 **Juniper Specialty Care** is a fictional outpatient medical group with two clinics, twelve clinicians, and three referral and authorization coordinators. Its physicians frequently order imaging for patients referred through primary care, orthopedics, and rehabilitation.
 
@@ -48,12 +68,12 @@ Build one complete workflow before adding more procedures or integrations.
 | Procedure | Routine lumbar MRI without contrast, represented by an explicit demo procedure identifier. |
 | Customer | One fictional organization; an additional organization fixture tests access isolation. |
 | Payers | Three fictional payers, one supported plan each, and two dated policy versions per payer. |
-| Data | 50 synthetic patient cases with approximately 8–12 documents each; begin development with 10 cases. |
+| Data | 50 synthetic patient cases with approximately 8–12 documents each; begin development with 10 cases. Structured records are generated with Synthea under a fixed seed; narrative notes and policies are authored fixtures. |
 | Integrations | A local FHIR R4 server, document storage, application database, and mock payer REST API. |
 | Interface | Case queue and case-detail screen with evidence, gaps, review actions, and history. |
 | Outcome | A reviewed authorization packet or an actionable request for missing documentation; optional submission to the mock payer. |
 
-Clinical necessity decisions, treatment recommendations, appeals, urgent cases, real payer submissions, and real patient data are outside this MVP. The copilot evaluates documentation against the selected fictional policy; the clinician retains clinical judgment and the payer owns the authorization decision.
+Clinical necessity decisions, treatment recommendations, appeals, urgent cases, real payer submissions, and real patient data are outside this MVP. CareAuthAI evaluates documentation against the selected fictional policy; the clinician retains clinical judgment and the payer owns the authorization decision.
 
 ## 4. Example user experience
 
@@ -61,7 +81,7 @@ The coordinator opens an existing order and selects **Prepare authorization**.
 
 > Prepare the lumbar MRI authorization for synthetic patient P042, covered by Cedar Demo Health's Standard plan.
 
-The copilot returns a checklist such as the following. These requirements are invented test fixtures, not clinical guidance or a real insurer's coverage policy.
+CareAuthAI returns a checklist such as the following. These requirements are invented test fixtures, not clinical guidance or a real insurer's coverage policy.
 
 | Fictional requirement | Evidence found | Assessment |
 | --- | --- | --- |
@@ -160,9 +180,40 @@ LangGraph's documented interrupt mechanism supports saving state and resuming wi
 
 FHIR represents service orders through [ServiceRequest](https://hl7.org/fhir/R4/servicerequest.html) and provides [DocumentReference](https://hl7.org/fhir/R4/documentreference.html) for indexing documents and attachments. The adapter should respect the source resource's meaning: a medication order alone does not prove medication use.
 
+### Synthetic data generation and FHIR seeding
+
+Mock data is introduced by seeding a real FHIR server, not by stubbing the adapter. The adapter always speaks FHIR REST to HAPI so that pagination, references, search parameters, and version history are exercised as they would be against a production EHR.
+
+```
+Synthea (fixed seed) --> curate script --> transaction bundles --> HAPI FHIR --> adapter (real REST)
+```
+
+| Stage | Work | Notes |
+| --- | --- | --- |
+| 1. Generate | Run Synthea with a pinned random seed to produce FHIR R4 resources for the case population. | A fixed seed keeps the evaluation set regenerable; otherwise gold labels are orphaned by any rebuild. |
+| 2. Curate | Author the artifacts Synthea does not supply and pin identifiers. | See the table below. |
+| 3. Load | `PUT` resources through FHIR transaction bundles so reseeding is idempotent and cited URLs stay stable. | Business identifiers such as `P042` and `ORD-042` live in `identifier`; the adapter searches by identifier rather than server-assigned IDs. |
+
+**Replace Synthea's payer data before generating.** Synthea ships real insurer names and plans in `insurance_companies.csv` and `insurance_plans.csv`. Substitute the three fictional payers and plans so that no real insurer name appears beside this project's invented policy fixtures.
+
+Synthea produces plausible `Patient`, `Condition`, `Encounter`, `MedicationRequest`, and `Procedure` history. The curate step must author the case-defining resources it does not generate:
+
+| Artifact | Reason it is authored |
+| --- | --- |
+| Lumbar MRI `ServiceRequest` | Requires the explicit demo procedure code, `requester`, and `occurrenceDateTime` that intake validation checks. |
+| `Coverage` referencing a fictional payer `Organization`, with the plan in `Coverage.class` | Gives policy resolution a payer and plan to match on. |
+| `DocumentReference` per narrative note | Synthea emits no clinical narrative; these index the authored notes. |
+| `Patient.managingOrganization` | Supports the cross-organization access-isolation fixture. |
+
+**Author narrative notes from the gold label, not the reverse.** Decide each case's intended disposition first — conservative care completed, therapy referred but never completed, contradictory dates, injected instructions — then draft notes that encode exactly that against the generated patient's real dates and codes, and hand-check them. Labeling notes after generating them makes retrieval and citation metrics measure whatever the generator happened to produce. Set `context.period.start` to the clinical event date and `date` to the upload date so that date-precedence rules are testable.
+
+HAPI maintains `meta.versionId` and `_history` automatically, so reseeding a changed document supplies a genuine version change for the freshness checks described below. HAPI does not enforce this application's access rules: it serves any resource it stores, so cross-organization and wrong-patient tests must assert that the adapter and tool layer blocked the request.
+
+This pipeline is implemented in [`seed/`](seed/README.md); `docker compose up -d db hapi` followed by `python -m seed` produces the full fixture population, and `python -m seed.verify` asserts the properties above against the running server.
+
 ### Ingestion and retrieval design
 
-1. **Ingest sources.** Seed the FHIR server with curated synthetic bundles. Parse text-based notes and policy PDFs; retain originals and page/section locations. Route unreadable scans to manual handling initially.
+1. **Ingest sources.** Seed the FHIR server as described above. Parse text-based notes and policy PDFs; retain originals and page/section locations. Route unreadable scans to manual handling initially.
 2. **Create a policy catalog.** Store payer, plan, procedure, effective interval, version, and content hash. Extract requirements once per policy version and review them against the complete policy before activation.
 3. **Index narrative content.** Split documents by meaningful sections, retaining exceptions and referenced context. Store embeddings and metadata in PostgreSQL with pgvector; use PostgreSQL full-text search alongside vector similarity.
 4. **Filter before retrieval.** Apply authorized organization/patient filters for chart documents and exact policy-version filters for policy content. Revalidate permissions when opening a cited original.
@@ -191,10 +242,11 @@ On resume, compare the case's source manifest with current versions and rerun af
 | Embeddings | Gemini embedding model | Embed policies and narrative notes; version the model and dimensions with the index. |
 | Application and retrieval data | PostgreSQL + pgvector + full-text search | Store case state, approvals, metadata, keyword indexes, and vectors in one database service. |
 | Synthetic EHR | HAPI FHIR server configured for R4 | Exercise real FHIR REST requests against locally controlled synthetic resources. |
+| Patient data generation | Synthea (Apache 2.0) with a pinned seed and replaced payer files | Produce realistic structured histories; regenerate the evaluation population reproducibly. |
 | Document storage | Local mounted directory for the MVP | Store original documents behind an authorized backend endpoint. |
 | Payer integration | Small FastAPI mock service | Simulate coverage checks, authorization requirements, submission, status, and failures. |
 | Observability | LangSmith initially; OpenTelemetry for API/tool spans | Inspect model and retrieval runs, then connect them to service-level traces. |
-| Evaluation and CI | pytest + a labeled JSON evaluation set + GitHub Actions | Run regression cases, access tests, and workflow checks; report quality and operational metrics. |
+| Evaluation and CI | pytest + a labeled JSON evaluation set + GitHub Actions | Run regression cases, access tests, and workflow checks; report quality and operational metrics. Unit tests replay recorded HAPI responses; a smaller integration tier runs against the live container. |
 | Local runtime | Docker Compose | Run the app, FHIR server, mock payer, and PostgreSQL reproducibly. |
 
 Use separate databases and credentials for HAPI and the application even if they share one local PostgreSQL instance. The application integrates through FHIR APIs rather than reading HAPI's internal database tables.
@@ -227,13 +279,13 @@ Trace each case through policy selection, retrieval, model calls, verification, 
 
 Before a real pilot, shadow coordinators preparing several representative requests. Establish what they count as a complete packet, who owns each clarification task, which systems contain authoritative records, and where outside records enter the process. Review the checklist and exception handling with the clinician and integration engineer.
 
-Measure **active staff minutes per case**, clarification cycles, first-review completeness, and the share of eligible cases where coordinators use the copilot. Keep payer decision time separate from preparation time. A personal demo can measure task completion and simulated review; real customer adoption and ROI would require an actual pilot.
+Measure **active staff minutes per case**, clarification cycles, first-review completeness, and the share of eligible cases where coordinators use CareAuthAI. Keep payer decision time separate from preparation time. A personal demo can measure task completion and simulated review; real customer adoption and ROI would require an actual pilot.
 
 For illustration only, 300 cases per month reduced from 25 to 10 active staff minutes each would save **75 staff hours per month**. The assisted time must include review and corrections; this is a planning calculation, not an observed result.
 
 | Milestone | Deliverable and completion check |
 | --- | --- |
-| 1. Define the case | Ten synthetic patients, one payer policy, and hand-checked labels for complete and incomplete requests. |
+| 1. Define the case | Ten Synthea-generated patients seeded into HAPI with curated orders, coverage, and notes; one payer policy; and hand-checked labels for complete and incomplete requests. |
 | 2. Build retrieval | FHIR adapter, document ingestion, policy selection, and cited evidence retrieval for one case. |
 | 3. Complete the workflow | Persisted graph, gap handling, packet draft, review interrupt, and successful restart/resume. |
 | 4. Add integration failures | Mock payer submission, idempotency, dependency errors, policy updates, and approval invalidation. |
