@@ -1,0 +1,54 @@
+name: careauth-ai
+
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: postgres
+      APP_DB_USER: ${APP_DB_USER:-careauth_app}
+      APP_DB_PASSWORD: ${APP_DB_PASSWORD:-careauth_app}
+      HAPI_DB_USER: ${HAPI_DB_USER:-hapi}
+      HAPI_DB_PASSWORD: ${HAPI_DB_PASSWORD:-hapi}
+    volumes:
+      - ./infra/postgres/init:/docker-entrypoint-initdb.d:ro
+      - db-data:/var/lib/postgresql/data
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  hapi:
+    image: hapiproject/hapi:v7.4.0
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      HAPI_DB_USER: ${HAPI_DB_USER:-hapi}
+      HAPI_DB_PASSWORD: ${HAPI_DB_PASSWORD:-hapi}
+    volumes:
+      - ./infra/hapi/application.yaml:/app/config/application.yaml:ro
+    ports:
+      - "${HAPI_PORT:-8080}:8080"
+
+  seeder:
+    build:
+      context: .
+      dockerfile: seed/Dockerfile
+    profiles: ["seed"]
+    depends_on:
+      - hapi
+    environment:
+      FHIR_BASE_URL: http://hapi:8080/fhir
+      CAREAUTH_DATA_DIR: /data
+    volumes:
+      - ./data:/data
+      - ./synthea-output:/synthea-output:ro
+    command: ["--wait", "300"]
+
+volumes:
+  db-data:

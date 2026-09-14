@@ -1,0 +1,31 @@
+# Mounted at /app/config/application.yaml. Spring Boot loads an external
+# config/ directory ahead of the configuration packaged in the image, and unlike
+# SPRING_JPA_PROPERTIES_* environment variables it reliably overrides map-typed
+# Hibernate properties such as the dialect.
+
+spring:
+  datasource:
+    url: jdbc:postgresql://db:5432/hapi
+    username: ${HAPI_DB_USER:hapi}
+    password: ${HAPI_DB_PASSWORD:hapi}
+    driverClassName: org.postgresql.Driver
+    max-active: 15
+  jpa:
+    properties:
+      hibernate.dialect: ca.uhn.fhir.jpa.model.dialect.HapiFhirPostgresDialect
+      hibernate.format_sql: false
+      hibernate.show_sql: false
+
+hapi:
+  fhir:
+    fhir_version: R4
+    # Client-assigned IDs let the seeder PUT stable ids such as Patient/P042,
+    # so reseeding is idempotent and cited URLs never move.
+    client_id_strategy: ANY
+    allow_multiple_delete: true
+    default_page_size: 50
+    max_page_size: 200
+    # HAPI reuses cached search results for ~1 minute by default, so a document
+    # loaded by the seeder can be missing from a search issued moments later.
+    # That makes seeding and tests non-deterministic; disable the reuse.
+    reuse_cached_search_results_millis: 0
